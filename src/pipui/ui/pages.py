@@ -1,14 +1,10 @@
-from urllib import parse
 
-import pip
 from loguru import logger
-from PyQt6.QtCore import QThread, pyqtSignal
-from PyQt6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
 
-from pipui.core import pip
+from pipui.core import services
+from pipui.ui import threads
 from pipui.ui.widgets import *
-
-PIP_MANATER = pip.PipManager()
 
 PIP_REPOS = {
     "官方": "https://pypi.org/simple",
@@ -26,58 +22,71 @@ class PipVersion(QWidget):
         self.pip_version = ""
         self.label_version = v_h4("")
         self.label_new_version = QLabel("-")
-        self.btn_upgrade = v_button(
-            "更新", color="success", disabled=True, onclick=self._upgrade_pip
-        )
 
         layout = QVBoxLayout()
         self.setLayout(layout)
+
+        self._thead_get_pip_version = threads.GetPipVersionThread()
+        self._thead_get_pip_version.signal.connect(self._refresh_pip_version)
+
+        self._thead_get_pip_last_version = threads.GetPipLastVersionThread()
+        self._thead_get_pip_last_version.signal.connect(self._refresh_pip_last_version)
+
+        self._thead_update_pip = threads.UpdaePipThread()
+        self._thead_update_pip.signal.connect(self._refresh_pip_version)
+
+        self.btn_upgrade = v_button("更新", color="success", disabled=True,
+                                    onclick=self._thead_update_pip.start)
         for child in [
             self.label_version,
             self.label_new_version,
             v_button_group(
                 [
                     v_button("卸载", color="danger", onclick=self._uninstall_pip),
-                    v_button("检测更新 ...", color="info", onclick=self._refresh_new_version),
+                    v_button("检测更新 ...", color="info", onclick=self._get_pip_last_version),
                     self.btn_upgrade,
                 ]
             ),
         ]:
             layout.addWidget(child)
         layout.addStretch()
-        self._refresh_pip_version()
-        # self._refresh_new_version()s
 
-    def _upgrade_pip(self):
-        pip_version = PIP_MANATER.version()
-        PIP_MANATER.install("pip", upgrade=True)
-        new_version = PIP_MANATER.version()
-        if new_version == pip_version:
-            logger.warning("无可用更新")
+        self._get_pip_version()
+
+    def _get_pip_version(self):
+        self._thead_get_pip_version.start()
+
+    def _refresh_pip_version(self, msg: str):
+        signal_msg = SignalMessage.from_json(msg)
+        if signal_msg.success:
+            self.pip_version = signal_msg.data.get('version', '')
+            self.label_version.setText(f"pip版本: {self.pip_version}")
         else:
-            logger.success("更新成功 {} -> {}", pip_version, new_version)
-            self.label_version.setText(f"pip版本: {new_version}")
-            self.label_new_version.setText("")
-            self.btn_upgrade.setDisabled(True)
+            self.label_version.setText("未安装")
+        self.btn_upgrade.setDisabled(True)
+
+    def _get_pip_last_version(self):
+        self._thead_get_pip_last_version.start()
+
+    def _refresh_pip_last_version(self, msg: str):
+        signal_msg = SignalMessage.from_json(msg)
+        if signal_msg.success:
+            new_version = signal_msg.data.get('version', '')
+            if new_version != self.pip_version:
+                label = f"🎉新版本: {new_version}"
+                self.btn_upgrade.setDisabled(False)
+            else:
+                label = "无可用更新"
+                self.btn_upgrade.setDisabled(True)
+        else:
+            label = "❗检查失败"
+            self.btn_upgrade.setDisabled(False)
+        self.label_new_version.setText(label)
+        
 
     def _uninstall_pip(self, *args):
         raise ImportError("uninstall pip")
 
-    def _refresh_new_version(self):
-        logger.debug("检查新版本 ...")
-        self.btn_upgrade.setDisabled(True)
-        new_version = PIP_MANATER.last_version("pip")
-        if new_version == self.pip_version:
-            logger.debug("无可用更新 ...")
-            self.label_new_version.setText("无可用更新")
-            self.btn_upgrade.setDisabled(True)
-        else:
-            self.label_new_version.setText(f"🎉新版本: {new_version}")
-            self.btn_upgrade.setDisabled(False)
-
-    def _refresh_pip_version(self):
-        self.pip_version = PIP_MANATER.version()
-        self.label_version.setText(f"版本: {self.pip_version}" if self.pip_version else "未安装")
 
 
 class PipConfig(QWidget):
@@ -86,7 +95,7 @@ class PipConfig(QWidget):
         super().__init__(*args, **kwargs)
 
         self.text_config = QPlainTextEdit()
-        # self.text_config.setDisabled(True)
+        self.text_config.setReadOnly(True)
         self.text_config.setMaximumBlockCount(10)
         font = self.text_config.font()
         font.setFamily("Courier New")
@@ -100,50 +109,37 @@ class PipConfig(QWidget):
         for child in [
             v_h4("配置"),
             self.text_config,
-            v_row(
-                [
-                    v_h5("选择源:"),
-                    self.box_pip_repos,
-                    v_button("设置", color="info", onclick=self._set_pip_repo),
-                ]
-            ),
+            v_row([
+                v_h5("选择源:"),
+                self.box_pip_repos,
+                v_button("设置", color="info", onclick=self._set_pip_repo),
+            ]),
         ]:
             layout.addWidget(child)
         layout.addStretch()
 
-        self._refresh_pip_config()
+        self._thead_get_pip_config = threads.GetPipConfigThread()
+        self._thead_get_pip_config.signal.connect(self._refresh_pip_config)
+        self._thead_set_pip_repo = threads.SetPipRepoThread()
+        self._thead_set_pip_repo.signal.connect(self._refresh_pip_config)
 
-    def _refresh_pip_config(self):
-        config = PIP_MANATER.config_list()
+        self._init_data()
+
+    def _init_data(self):
+        self._thead_get_pip_config.start()
+
+    def _refresh_pip_config(self, msg: str):
+        config = SignalMessage.from_json(msg).data.get('config', '')
         self.text_config.setPlainText(config)
 
     def _set_pip_repo(self):
         repo_name = self.box_pip_repos.currentText()
         repo = PIP_REPOS.get(repo_name)
+        if not repo:
+            return
         logger.debug("set pip repo -> {}({})", repo_name, repo)
-        result = parse.urlparse(repo)
-        PIP_MANATER.config_set("global.index-url", repo)
-        PIP_MANATER.config_set("global.trusted-host", result.hostname)
-        self._refresh_pip_config()
-
-
-class CheckPkgVersionThread(QThread):
-    update_signal = pyqtSignal(str)
-
-    def set_packages(self, packages: List[PyPackage]):
-        self.packages = packages
-
-    def run(self):
-        import json
-
-        logger.debug("check update start")
-        for index, pkg in enumerate(self.packages):
-            pkg.new_version = PIP_MANATER.last_version(pkg.name)
-            logger.debug("package {} new version: {}", pkg, pkg.new_version)
-            self.update_signal.emit(
-                json.dumps({"index": index, "name": pkg.name, "new_version": pkg.new_version})
-            )
-        logger.debug("check update finished")
+        self._thead_set_pip_repo.set_repo(repo)
+        self._thead_set_pip_repo.start()
 
 
 class PipPackages(QWidget):
@@ -167,8 +163,8 @@ class PipPackages(QWidget):
             layout.addWidget(child)
 
         self._refresh_pip_packages()
-        self._thread = CheckPkgVersionThread()
-        self._thread.update_signal.connect(self.table.update_item)
+        self._thread = threads.CheckPkgVersionThread()
+        self._thread.signal.connect(self.table.update_item)
 
     def _refresh_all_version(self):
         self._thread.set_packages(self.packages)
@@ -176,5 +172,5 @@ class PipPackages(QWidget):
         self._thread.start()
 
     def _refresh_pip_packages(self):
-        self.packages = PIP_MANATER.list_packages()
+        self.packages = services.PIP.list_packages()
         self.table.set_packages(self.packages)

@@ -1,20 +1,10 @@
-import dataclasses
-import json
+from importlib.metadata import distributions
 from typing import List
 
 import requests
 
-from pipui.core import executor
-
-
-@dataclasses.dataclass
-class PyPackage:
-    name: str
-    version: str
-    new_version: str = ""
-
-    def __str__(self) -> str:
-        return f"<{self.name}:{self.version}>"
+from pipui.common import executor
+from pipui.core.modules import PyPackage
 
 
 class PipManager:
@@ -37,7 +27,7 @@ class PipManager:
         args = ["install"]
         if upgrade:
             args.append("--upgrade")
-        args.append(name)
+        args.extend([name, '--progress-bar', 'off'])
         self.pip_cmd.execute(*args)
 
     def uninstall(self, name):
@@ -47,13 +37,9 @@ class PipManager:
         _, stdout = self.pip_cmd.execute("config", "list")
         return stdout
 
-    # def config_list(self) -> dict:
-    #     _, stdout = self.pip_cmd.execute('config', 'list')
-    #     return dict(item.strip().split("=", 1) for item in stdout.split())
-
     def config_set(self, key, value):
         self.pip_cmd.execute("config", "set", key, value)
 
     def list_packages(self) -> List[PyPackage]:
-        _, stdout = self.pip_cmd.execute("list", "--format", "json")
-        return [PyPackage(item.get("name"), item.get("version")) for item in json.loads(stdout)]
+        return [PyPackage(item.metadata.get('Name', ''), item.metadata.get('Version', ''))
+                for item in distributions()]

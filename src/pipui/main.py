@@ -17,7 +17,13 @@ def show_dashboard():
 
 
 def main():
-    logging.setup_logger()
+    
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-d', "--debug", action="store_true", help="Enable debug mode")
+    args = parser.parse_args()
+    logging.setup_logger(level="DEBUG" if args.debug else "INFO")
+
     show_dashboard()
 
 

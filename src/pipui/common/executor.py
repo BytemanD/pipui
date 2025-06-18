@@ -15,7 +15,7 @@ class Executor:
         status, output = subprocess.getstatusoutput(
             " ".join(cmd),
         )
-        logger.debug("Return: [{}]", status)
+        logger.debug("Return: [{}], output:\n{}", status, output)
         if status != 0:
             raise subprocess.CalledProcessError(status, output)
         return status, output

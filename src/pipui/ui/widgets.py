@@ -1,14 +1,32 @@
+import dataclasses
 import json
 from typing import Callable, List, Optional
 
 from loguru import logger
-from PyQt6 import QtWidgets
-from PyQt6.QtWidgets import (QAbstractButton, QComboBox,  # fmt: skip
-                             QHBoxLayout, QHeaderView, QLabel, QPushButton,
-                             QTableWidget, QTableWidgetItem, QVBoxLayout,
-                             QWidget)
+from PySide6 import QtWidgets
+from PySide6.QtWidgets import (QAbstractButton, QComboBox,  # fmt: skip
+                               QHBoxLayout, QHeaderView, QLabel, QPushButton,
+                               QTableWidget, QTableWidgetItem, QVBoxLayout,
+                               QWidget)
 
-from pipui.core.pip import PyPackage
+from pipui.core.manager.pip import PyPackage
+
+
+@dataclasses.dataclass
+class SignalMessage:
+    success: bool
+    data: dict = dataclasses.field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return dataclasses.asdict(self)
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, data) -> 'SignalMessage':
+        msg = json.loads(data)
+        return cls(success=msg.get('success', False), data=msg.get("data", {}))
 
 
 def v_h3(text):
@@ -29,10 +47,13 @@ def v_h5(text):
     return label
 
 
-def v_button(text, color=None, onclick: Optional[Callable] = None, disabled=False) -> QPushButton:
+def v_button(text, color=None, onclick: Optional[Callable] = None,
+             variant=None, disabled=False) -> QPushButton:
     btn = QPushButton(text)
     if color:
         btn.setProperty("class", color)
+    if variant:
+        btn.setProperty("name", variant)
     if onclick:
         btn.clicked.connect(onclick)
     if disabled:
@@ -118,10 +139,12 @@ class PackageTable(QWidget):
             layout.setContentsMargins(0, 0, 0, 0)
 
             btn2 = v_button(
-                "更新", color="warning", onclick=lambda _, p=package: self.update_package(p)
+                "更新", color="warning", variant="checked",
+                onclick=lambda _, p=package: self.update_package(p)
             )
             btn1 = v_button(
-                "卸载", color="danger", onclick=lambda _, p=package: self.uninstall_package(p)
+                "卸载", color="danger", variant="text",
+                onclick=lambda _, p=package: self.uninstall_package(p)
             )
 
             layout.addWidget(btn1)
@@ -130,30 +153,16 @@ class PackageTable(QWidget):
 
             self.table.setCellWidget(index, 3, widget)
 
-    def update_item(self, data: str):
-        msg = PackageUpdateMsg.from_json(data)
-        item = self.table.item(msg.index, 2)
+    def update_item(self, msg: str):
+        data = SignalMessage.from_json(msg).data
+        item = self.table.item(data.get('index', 0), 2)
         if item:
-            logger.debug(
-                "update package {}({}) new_version {}", msg.index, msg.name, msg.new_version
-            )
-            item.setText(msg.new_version)
+            logger.debug("update package {}({}) new_version {}",
+                         msg.index, data.get('name', ''), data['new_version'])
+            item.setText(data['new_version'])
 
     def update_package(self, package: PyPackage):
         logger.debug("uninstall package {}", package)
 
     def uninstall_package(self, package: PyPackage):
         logger.debug("update package {}", package)
-
-
-class PackageUpdateMsg:
-
-    def __init__(self, index, name, new_version) -> None:
-        self.index = index
-        self.name = name
-        self.new_version = new_version
-
-    @classmethod
-    def from_json(cls, data):
-        msg = json.loads(data)
-        return PackageUpdateMsg(msg.get("index"), msg.get("name"), msg.get("new_version"))

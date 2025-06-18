@@ -1,10 +1,10 @@
 import sys
 
 from loguru import logger
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QListWidget,  # fmt: skip
-                             QListWidgetItem, QMainWindow, QMessageBox,
-                             QStackedWidget, QVBoxLayout, QWidget)
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QListWidget,  # fmt: skip
+                               QListWidgetItem, QMainWindow, QMessageBox,
+                               QStackedWidget, QVBoxLayout, QWidget)
 
 from . import pages
 
