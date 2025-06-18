@@ -4,12 +4,13 @@ from typing import Callable, List, Optional
 
 from loguru import logger
 from PySide6 import QtWidgets
-from PySide6.QtWidgets import (QAbstractButton, QComboBox,  # fmt: skip
-                               QHBoxLayout, QHeaderView, QLabel, QPushButton,
-                               QTableWidget, QTableWidgetItem, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView,  # fmt: skip
+                               QComboBox, QHBoxLayout, QHeaderView, QLabel,
+                               QPushButton, QTableWidget, QTableWidgetItem,
+                               QVBoxLayout, QWidget)
 
 from pipui.core.manager.pip import PyPackage
+from pipui.ui import threads
 
 
 @dataclasses.dataclass
@@ -95,6 +96,11 @@ def v_dropdown_selector(items: List[str], min_width=None) -> QComboBox:
     box.addItems(items)
     return box
 
+def v_progress_bar(minimum: int = 0, maximum: int = 100, hide=False) -> QtWidgets.QProgressBar:
+    widget = QtWidgets.QProgressBar()
+    widget.setRange(minimum, maximum)
+    widget.setHidden(hide)
+    return widget
 
 class VLabel(QWidget):
 
@@ -111,10 +117,13 @@ class VLabel(QWidget):
 
 
 class PackageTable(QWidget):
+
     def __init__(self, header: List[str], *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._packages = []
 
         self.table = QTableWidget()
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setColumnCount(len(header) + 1)
         self.table.setHorizontalHeaderLabels(header + ["操作"])
 
@@ -126,7 +135,11 @@ class PackageTable(QWidget):
         self._layout.addWidget(self.table)
         self.setLayout(self._layout)
 
+        self._thread_uninstall_thread = threads.UninstallPkgThread()
+        self._thread_uninstall_thread.signal.connect(self._remove_package)
+
     def set_packages(self, packaes: List[PyPackage]):
+        self._packages = packaes
         self.table.clearContents()
         self.table.setRowCount(len(packaes))
         for index, package in enumerate(packaes):
@@ -138,17 +151,17 @@ class PackageTable(QWidget):
             layout = QHBoxLayout(widget)
             layout.setContentsMargins(0, 0, 0, 0)
 
-            btn2 = v_button(
-                "更新", color="warning", variant="checked",
+            btn_uninsatll = v_button(
+                "卸载", color="danger", variant="text",
+                onclick=lambda _, p=package: self._uninstall_package(p)
+            )
+            btn_update = v_button(
+                "更新", color="warning", variant="checked", disabled=True,
                 onclick=lambda _, p=package: self.update_package(p)
             )
-            btn1 = v_button(
-                "卸载", color="danger", variant="text",
-                onclick=lambda _, p=package: self.uninstall_package(p)
-            )
 
-            layout.addWidget(btn1)
-            layout.addWidget(btn2)
+            layout.addWidget(btn_uninsatll)
+            layout.addWidget(btn_update)
             layout.addStretch()
 
             self.table.setCellWidget(index, 3, widget)
@@ -162,7 +175,22 @@ class PackageTable(QWidget):
             item.setText(data['new_version'])
 
     def update_package(self, package: PyPackage):
-        logger.debug("uninstall package {}", package)
-
-    def uninstall_package(self, package: PyPackage):
         logger.debug("update package {}", package)
+
+    def _uninstall_package(self, package: PyPackage):
+        logger.info("uninsatll package {}", package)
+        self._thread_uninstall_thread.set_package(package.name)
+        self._thread_uninstall_thread.start()
+
+    def _remove_package(self, msg: str):
+        removed_package = SignalMessage.from_json(msg).data.get('name')
+        if not removed_package:
+            return
+        for i, package in enumerate(self._packages):
+            if package.name != removed_package:
+                continue
+            self.table.removeRow(i)
+            del self._packages[i]
+            logger.debug("remove package {} from table", package.name)
+            break
+        # self.set_packages(self._packages)

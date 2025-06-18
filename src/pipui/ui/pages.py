@@ -156,20 +156,36 @@ class PipPackages(QWidget):
             "检测更新...", color="info", onclick=self._refresh_all_version
         )
 
+        self.update_progress = v_progress_bar(hide=True)
+
         for child in [
-            v_button_group([self.btn_check_version]),
+            v_row([
+                v_button_group([self.btn_check_version]),
+                self.update_progress,
+            ]),
             self.table,
         ]:
             layout.addWidget(child)
 
         self._refresh_pip_packages()
         self._thread = threads.CheckPkgVersionThread()
-        self._thread.signal.connect(self.table.update_item)
+        self._thread.signal.connect(self._receive_update_signal)
 
     def _refresh_all_version(self):
-        self._thread.set_packages(self.packages)
         logger.debug("start update thread", self._thread)
+        self._show_and_reset_progress()
+        self._thread.set_packages(self.packages)
         self._thread.start()
+
+    def _receive_update_signal(self, msg: str):
+        self.table.update_item(msg)
+        self.update_progress.setValue(self.update_progress.value() + 1)
+        logger.debug("completed: {}", self.update_progress.value())
+
+    def _show_and_reset_progress(self):
+        self.update_progress.setHidden(False)
+        self.update_progress.setValue(0)
+        self.update_progress.setRange(0, len(self.packages))
 
     def _refresh_pip_packages(self):
         self.packages = services.PIP.list_packages()

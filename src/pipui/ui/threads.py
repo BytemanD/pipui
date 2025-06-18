@@ -90,6 +90,10 @@ class UpdaePipThread(QThread):
 class CheckPkgVersionThread(QThread):
     signal = Signal(str)
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.packages = []
+
     def set_packages(self, packages: List[PyPackage]):
         self.packages = packages
 
@@ -101,3 +105,28 @@ class CheckPkgVersionThread(QThread):
             data = {"index": index, "name": pkg.name, "new_version": pkg.new_version}
             self.signal.emit(SignalMessage(success=True, data=data).to_json())
         logger.debug("check update finished")
+
+
+class UninstallPkgThread(QThread):
+    signal = Signal(str)
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.name = ''
+
+    def set_package(self, name):
+        self.name = name
+
+    def run(self):
+        if not self.name:
+            logger.error("uninstall package name is empty")
+            return
+        logger.info("start uinstall package {} ...", self.name)
+        try:
+            services.PIP.uninstall(self.name)
+        except Exception as e:
+            logger.error("uninstall package {} failed: {}", self.name, e)
+            return
+        else:
+            logger.success("uinstall package {} success", self.name)
+            self.signal.emit(SignalMessage(success=True, data={"name": self.name}).to_json())
