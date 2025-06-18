@@ -1,5 +1,6 @@
 from urllib import parse
 
+import requests
 from loguru import logger
 from PySide6.QtCore import QThread, Signal
 
@@ -100,7 +101,14 @@ class CheckPkgVersionThread(QThread):
     def run(self):
         logger.debug("check update start")
         for index, pkg in enumerate(self.packages):
-            pkg.new_version = services.PIP.last_version(pkg.name)
+            try:
+                pkg.new_version = services.PIP.last_version(pkg.name)
+            except (requests.ConnectionError, requests.ConnectTimeout) as e:
+                logger.error("check update failed, check your network and retry. {}", e)
+                break
+            except requests.HTTPError as e:
+                logger.error("check update failed: {}", e)
+                continue
             logger.debug("package {} new version: {}", pkg, pkg.new_version)
             data = {"index": index, "name": pkg.name, "new_version": pkg.new_version}
             self.signal.emit(SignalMessage(success=True, data=data).to_json())
